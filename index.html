@@ -1,76 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Click the Box Game</title>
-<style>
-  body {
-    margin: 0;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    background: #222;
-    color: #fff;
-    font-family: Arial, sans-serif;
-    flex-direction: column;
-  }
-  #gameArea {
-    position: relative;
-    width: 500px;
-    height: 400px;
-    border: 2px solid #fff;
-    background: #333;
-    margin-bottom: 20px;
-    overflow: hidden;
-  }
-  #box {
-    position: absolute;
-    width: 50px;
-    height: 50px;
-    background: red;
-    cursor: pointer;
-  }
-  #score {
-    font-size: 24px;
-  }
-</style>
+    <meta charset="UTF-8">
+    <title>3D Maze GTA-Style Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+    </style>
 </head>
 <body>
-
-<div id="gameArea">
-  <div id="box"></div>
-</div>
-<div id="score">Score: 0</div>
-
+<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/examples/js/controls/PointerLockControls.js"></script>
 <script>
-  const box = document.getElementById('box');
-  const gameArea = document.getElementById('gameArea');
-  const scoreDisplay = document.getElementById('score');
-  let score = 0;
+// Scene Setup
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb); // Sky blue
 
-  function moveBox() {
-    const maxX = gameArea.clientWidth - box.offsetWidth;
-    const maxY = gameArea.clientHeight - box.offsetHeight;
-    const randomX = Math.floor(Math.random() * maxX);
-    const randomY = Math.floor(Math.random() * maxY);
-    box.style.left = randomX + 'px';
-    box.style.top = randomY + 'px';
-  }
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
 
-  box.addEventListener('click', () => {
-    score++;
-    scoreDisplay.textContent = 'Score: ' + score;
-    moveBox();
-  });
+// Lighting
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(ambientLight);
 
-  // Move box every 1 second if not clicked
-  setInterval(moveBox, 1000);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+directionalLight.position.set(10, 20, 10);
+scene.add(directionalLight);
 
-  // Initial position
-  moveBox();
+// Controls
+const controls = new THREE.PointerLockControls(camera, document.body);
+document.body.addEventListener('click', () => { controls.lock(); });
+
+// Floor
+const floorGeometry = new THREE.PlaneGeometry(100, 100, 10, 10);
+const floorMaterial = new THREE.MeshStandardMaterial({color: 0x228B22});
+const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+floor.rotation.x = -Math.PI/2;
+scene.add(floor);
+
+// Maze Walls
+const wallMaterial = new THREE.MeshStandardMaterial({color: 0x8B4513});
+const wallSize = 5;
+const maze = [
+    [1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,0,1,1,0,0,1],
+    [1,0,1,0,0,0,1,0,0,1],
+    [1,0,1,0,1,0,1,0,0,1],
+    [1,0,0,0,1,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1]
+];
+
+maze.forEach((row, z) => {
+    row.forEach((cell, x) => {
+        if(cell === 1){
+            const wallGeometry = new THREE.BoxGeometry(wallSize, wallSize, wallSize);
+            const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+            wall.position.set(x*wallSize, wallSize/2, z*wallSize);
+            scene.add(wall);
+        }
+    });
+});
+
+// Player variables
+const velocity = new THREE.Vector3();
+const direction = new THREE.Vector3();
+const speed = 0.2;
+let moveForward = false;
+let moveBackward = false;
+let moveLeft = false;
+let moveRight = false;
+
+// Key events
+document.addEventListener('keydown', (event) => {
+    switch(event.code){
+        case 'ArrowUp': case 'KeyW': moveForward = true; break;
+        case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
+        case 'ArrowDown': case 'KeyS': moveBackward = true; break;
+        case 'ArrowRight': case 'KeyD': moveRight = true; break;
+    }
+});
+document.addEventListener('keyup', (event) => {
+    switch(event.code){
+        case 'ArrowUp': case 'KeyW': moveForward = false; break;
+        case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
+        case 'ArrowDown': case 'KeyS': moveBackward = false; break;
+        case 'ArrowRight': case 'KeyD': moveRight = false; break;
+    }
+});
+
+// Collision detection helper
+function checkCollision(newPos){
+    for(let obj of scene.children){
+        if(obj.geometry && obj.geometry.type === 'BoxGeometry'){
+            const dist = obj.position.clone().sub(newPos).length();
+            if(dist < wallSize){
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Animation loop
+function animate(){
+    requestAnimationFrame(animate);
+
+    velocity.x = velocity.z = 0;
+    direction.z = Number(moveForward) - Number(moveBackward);
+    direction.x = Number(moveRight) - Number(moveLeft);
+    direction.normalize();
+
+    if(moveForward || moveBackward) velocity.z -= direction.z * speed;
+    if(moveLeft || moveRight) velocity.x -= direction.x * speed;
+
+    const nextPosition = camera.position.clone();
+    nextPosition.x += velocity.x;
+    nextPosition.z += velocity.z;
+
+    if(!checkCollision(nextPosition)){
+        camera.position.copy(nextPosition);
+    }
+
+    renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
 </script>
-
 </body>
 </html>
